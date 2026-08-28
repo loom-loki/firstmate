@@ -1,0 +1,59 @@
+
+=== 1. an agent arms a watch on a REAL Forgejo pull request (open) - before this change this URL was refused outright ===
+$ bin/fm-pr-check.sh task-open https://codeberg.org/forgejo/forgejo/pulls/8964
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+armed: state/task-open.check.sh
+exit=0
+-- task meta recorded --
+pr=https://codeberg.org/forgejo/forgejo/pulls/8964
+pr_head=d9ad4f65764d6815cca6f281158598e73bc4315e
+-- private poll sidecar (task-open.pr-poll) --
+forgejo
+https://codeberg.org/forgejo/forgejo/pulls/8964
+codeberg.org
+forgejo/forgejo
+8964
+-- armed check source is byte-for-byte bin/fm-pr-poll.sh --
+identical: 4df03972907646e0d88f3ff1c98bc2cef30858cea409d372743b9aab41af1bfc
+-- the watcher runs the armed check: an unmerged pull request stays silent --
+$ bash state/task-open.check.sh   # this is exactly how the watcher runs it (mode 0600)
+exit=0 stdout=[]
+
+=== 2. the same path on a REAL merged Forgejo pull request wakes firstmate ===
+$ bin/fm-pr-check.sh task-merged https://codeberg.org/forgejo/forgejo/pulls/8900
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+armed: state/task-merged.check.sh
+exit=0
+pr=https://codeberg.org/forgejo/forgejo/pulls/8900
+pr_head=8b416fb374a04b886b96877ef5cc33035ad7b00f
+-- the watcher runs the armed check --
+$ bash state/task-merged.check.sh
+merged
+exit=0
+
+=== 3. the live head recorded as pr_head= is the forge's own head for that pull request ===
+$ forgejo-axi pr view --base-url https://codeberg.org --repo forgejo/forgejo 8964 --fields head_sha
+pull_request:
+  head_sha: d9ad4f65764d6815cca6f281158598e73bc4315e
+
+=== 4. a Forgejo URL misspelled with GitHub's singular /pull/ matches no provider ===
+$ bin/fm-pr-check.sh task-bad https://codeberg.org/forgejo/forgejo/pull/8964
+error: invalid PR check request
+exit=2
+-- and a github.com URL with Forgejo's plural is not read as Forgejo on a host GitHub owns --
+$ bin/fm-pr-check.sh task-bad https://github.com/o/r/pulls/1
+error: invalid PR check request
+exit=2
+
+=== 5. honest degradation: with forgejo-axi off PATH, arming refuses instead of watching nothing ===
+$ PATH=<no forgejo-axi> bin/fm-pr-check.sh task-nocli https://codeberg.org/forgejo/forgejo/pulls/8964
+error: watching a Forgejo pull request requires forgejo-axi on PATH
+exit=1
+-- nothing was recorded --
+0

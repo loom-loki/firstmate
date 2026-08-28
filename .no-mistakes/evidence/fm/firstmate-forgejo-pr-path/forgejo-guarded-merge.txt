@@ -1,0 +1,86 @@
+
+=== 1. merging a Forgejo pull request through the guard (live pre-merge read, shimmed write) ===
+$ bin/fm-pr-merge.sh task-m1 https://codeberg.org/forgejo/forgejo/pulls/8964
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+armed: state/task-m1.check.sh
+verified: https://codeberg.org/forgejo/forgejo/pulls/8964 is mergeable with passing checks at head d9ad4f65764d6815cca6f281158598e73bc4315e
+merged: pull request landed
+exit=0
+-- exact forgejo-axi calls fm-pr-merge.sh made --
+pr view --base-url https://codeberg.org --repo forgejo/forgejo 8964 --fields head_sha
+pr mergeability --base-url https://codeberg.org --repo forgejo/forgejo 8964 --json
+pr merge --base-url https://codeberg.org --repo forgejo/forgejo 8964 --expected-head d9ad4f65764d6815cca6f281158598e73bc4315e --method squash
+pr merged --base-url https://codeberg.org --repo forgejo/forgejo 8964 --json
+-- pr= recorded and merge poll armed before the forge call --
+pr=https://codeberg.org/forgejo/forgejo/pulls/8964
+pr_head=d9ad4f65764d6815cca6f281158598e73bc4315e
+-- no pull request URL was ever handed to forgejo-axi (instance comes from --base-url) --
+0
+
+=== 2. the pre-merge gate refuses on the forge's own live answer ===
+$ bin/fm-pr-merge.sh task-m2 https://codeberg.org/forgejo/forgejo/pulls/8925
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+armed: state/task-m2.check.sh
+error: refusing to merge https://codeberg.org/forgejo/forgejo/pulls/8925
+  - the merged verdict is "false", not true
+error:   - the forge names: already_merged
+exit=1
+-- no merge was attempted --
+pr view --base-url https://codeberg.org --repo forgejo/forgejo 8925 --fields head_sha
+pr mergeability --base-url https://codeberg.org --repo forgejo/forgejo 8925 --json
+-- but pr= is still recorded and the merge poll stays armed --
+pr=https://codeberg.org/forgejo/forgejo/pulls/8925
+
+=== 3. a caller-chosen method is preserved; the default is squash (see call 1 above) ===
+$ bin/fm-pr-merge.sh task-m3 https://codeberg.org/forgejo/forgejo/pulls/8964 -- --method rebase
+exit=0
+pr mergeability --base-url https://codeberg.org --repo forgejo/forgejo 8964 --json
+pr merge --base-url https://codeberg.org --repo forgejo/forgejo 8964 --expected-head d9ad4f65764d6815cca6f281158598e73bc4315e --method rebase
+pr merged --base-url https://codeberg.org --repo forgejo/forgejo 8964 --json
+
+=== 4. REVIEW FIX 1: GitHub's method spellings are refused by name before anything is recorded ===
+$ bin/fm-pr-merge.sh task-m4 https://codeberg.org/forgejo/forgejo/pulls/8964 -- --squash
+error: extra merge arguments must name a Forgejo merge method as --method squash|merge|rebase, not --squash
+exit=1
+-- nothing recorded, no forge call --
+pr= lines: 0  forgejo-axi calls: 0
+-- and this is what the real forgejo-axi 1.3.0 does with that flag (live) --
+$ forgejo-axi pr merge --base-url https://codeberg.org --repo forgejo/forgejo 8964 --expected-head <sha> --squash
+error: Unknown flag --squash for `pr merge`
+code: VALIDATION_ERROR
+details:
+help[2]: "Valid flags: --base-url, --ca-file, --expected-head, --help, --json, --method, --repo, --timeout-ms, --token-env",Run `forgejo-axi pr merge --help`
+
+=== 5. REVIEW FIX 2: a merge the forge accepts but cannot prove landed is reported, not silently exit 0 ===
+$ bin/fm-pr-merge.sh task-m5 https://codeberg.org/forgejo/forgejo/pulls/8964   (forge proof comes back merged:false)
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+armed: state/task-m5.check.sh
+verified: https://codeberg.org/forgejo/forgejo/pulls/8964 is mergeable with passing checks at head d9ad4f65764d6815cca6f281158598e73bc4315e
+merged: pull request landed
+actionable: Forgejo accepted the merge for https://codeberg.org/forgejo/forgejo/pulls/8964 but reads back as not merged; the merge poll remains armed
+exit=0
+
+=== 6. identity overrides that would move the merge off the URL are refused before recording ===
+$ bin/fm-pr-merge.sh task-m6 https://codeberg.org/forgejo/forgejo/pulls/8964 -- --base-url https://evil.example
+error: extra merge arguments must not override the forge instance
+exit=1
+$ bin/fm-pr-merge.sh task-m6 https://codeberg.org/forgejo/forgejo/pulls/8964 -- --expected-head 0000000000000000000000000000000000000000
+error: extra merge arguments must not override the head commit
+exit=1
+$ bin/fm-pr-merge.sh task-m6 https://codeberg.org/forgejo/forgejo/pulls/8964 -- --repo other/repo
+error: extra merge arguments must not override the repository
+exit=1
+
+=== 7. honest degradation: forgejo-axi or jq absent refuses before recording ===
+$ PATH=<no forgejo-axi> bin/fm-pr-merge.sh task-m7 https://codeberg.org/forgejo/forgejo/pulls/8964
+error: merging a Forgejo pull request requires forgejo-axi on PATH
+exit=1
+pr= lines: 0
