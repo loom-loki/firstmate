@@ -300,8 +300,13 @@ log_reports_ci_ready() {
 # a file path, so the status word itself is matched loosely: an unrecognized or
 # newly added status must still be read and reported, not silently dropped.
 # Verified against all 495 step rows `no-mistakes axi status --run` renders for
-# every run in the local v1.60.2 store: every one is read, and every row the
-# narrower ci-only predicate this replaced used to match is still matched.
+# every run in the local v1.60.2 store, every one of them terminal: all 495 are
+# read. That scan could not cover, and this deliberately does not match, the
+# separate active_steps{step,status,active_for,...} table an ACTIVE run also
+# renders, whose third column is a duration, as in `ci,running,1m40s,...`. The
+# narrower ci-only predicate this replaced did match those rows; nothing is lost
+# by rejecting them, because the same output's steps table still carries that
+# step as `ci,running,0,0`.
 nm_step_status() {  # <step-name>
   local row rest
   row=$(printf '%s\n' "$RUN_OUT" \
@@ -369,17 +374,17 @@ nm_effective_ci_step_status() {
 # reports every check green - a run that reaches its pr and ci steps only
 # reaches outcome=passed once the PR is actually merged (or failed/cancelled if
 # closed); nm_passed_pr_detail above owns what outcome=passed proves about the
-# PR for a run whose pr step never ran. `axi status`'s steps[] table
-# never distinguishes "still waiting on checks" from "checks green, waiting on
-# merge": both read as plain `ci,running,...`. The only place that transition is
-# recorded is the ci step's own log text, e.g. "all CI checks passed - still
-# monitoring until merged or closed" or "no CI checks reported - still
-# monitoring until merged or closed" (verified against 360+ real run logs under
-# ~/.no-mistakes/logs/*/ci.log on the installed v1.32.2 binary, including the
-# actual PR #252 run). Reads the ci step's log tail via `axi logs` and scans it
-# for the MOST RECENT recognized marker (the log is append-only/chronological,
-# so the last match is current): green with nothing red after it means CI is
-# green right now, still only waiting on merge/close.
+# PR. `axi status`'s steps[] table never distinguishes "still waiting on
+# checks" from "checks green, waiting on merge": both read as plain
+# `ci,running,...`. The only place that transition is recorded is the ci step's
+# own log text, e.g. "all CI checks passed - still monitoring until merged or
+# closed" or "no CI checks reported - still monitoring until merged or closed"
+# (verified against 360+ real run logs under ~/.no-mistakes/logs/*/ci.log on the
+# installed v1.32.2 binary, including the actual PR #252 run). Reads the ci
+# step's log tail via `axi logs` and scans it for the MOST RECENT recognized
+# marker (the log is append-only/chronological, so the last match is current):
+# green with nothing red after it means CI is green right now, still only
+# waiting on merge/close.
 nm_ci_checks_state() {
   local run_id log_tail marker
   run_id=$(strip_quotes "$(nm_field id)")
