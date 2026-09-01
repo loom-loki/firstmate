@@ -791,6 +791,46 @@ test_terminal_passed_pr_completed_reads_as_landed() {
   pass "outcome=passed with a completed pr step still reports the merge"
 }
 
+# outcome=passed from a run whose step table carries NO pr row at all - the
+# shape any axi status revision that renames, reorders or drops that step would
+# produce. The reader cannot then observe a merge either, so the safety property
+# is the same one the skipped case pins: never assert a merge the run did not
+# perform.
+run_passed_no_pr_row() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: completed
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  findings: "1 awaiting, 3 auto-fix, 42 info"
+  steps[7]{step,status,findings,duration_ms}:
+    intent,completed,0,13
+    rebase,skipped,42,521
+    review,completed,3,836695
+    test,completed,0,704937
+    document,completed,0,939357
+    lint,completed,1,16
+    push,completed,0,697
+outcome: passed
+EOF
+}
+
+test_terminal_passed_without_a_pr_row_claims_no_merge() {
+  reset_fakes
+  local d; d=$(new_case passed-no-pr-row)
+  make_repo_on_branch "$d/wt" fm/feat-d-nopr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-d-nopr.meta" "window=fm:fm-feat-d-nopr" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_passed_no_pr_row fm/feat-d-nopr)"
+  local out; out=$(run_crew_state "$d" feat-d-nopr)
+  assert_contains "$out" "source: run-step" "passed with no pr row -> run-step source"
+  assert_not_contains "$out" "merged/closed" "an unreported pr step must not claim a merged-or-closed PR"
+  assert_contains "$out" "no PR step reported" "an unreported pr step must say so plainly"
+  assert_contains "$out" "merge state unknown" "an unreported pr step must state merge state is unknown to the run"
+  pass "outcome=passed with no pr step row does not claim a merge"
+}
+
 # Negative case for the numeric-third-column guard in the step-row reader. The
 # run below genuinely skipped its pr step, and a `pr` finding sits above that
 # row in the output. Drop the guard and the finding is matched first, so the pr
@@ -1710,6 +1750,7 @@ test_terminal_passed
 test_terminal_passed_pr_skipped_claims_no_merge
 test_terminal_passed_pr_completed_reads_as_landed
 test_findings_row_is_not_read_as_a_step_row
+test_terminal_passed_without_a_pr_row_claims_no_merge
 test_terminal_failed
 test_cross_branch_attribution_via_runs_list
 test_cross_branch_attribution_picks_most_recent_row

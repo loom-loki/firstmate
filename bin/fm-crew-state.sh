@@ -366,8 +366,10 @@ nm_effective_ci_step_status() {
 # Root cause of the PR #252 incident (2026-07): for a repo where merge is left
 # to the captain, no-mistakes' ci step (and therefore top-level status/outcome)
 # stays "running" for the ENTIRE CI-monitor phase, including long after GitHub
-# reports every check green - it only reaches outcome=passed once the PR is
-# actually merged (or failed/cancelled if closed). `axi status`'s steps[] table
+# reports every check green - a run that reaches its pr and ci steps only
+# reaches outcome=passed once the PR is actually merged (or failed/cancelled if
+# closed); nm_passed_pr_detail above owns what outcome=passed proves about the
+# PR for a run whose pr step never ran. `axi status`'s steps[] table
 # never distinguishes "still waiting on checks" from "checks green, waiting on
 # merge": both read as plain `ci,running,...`. The only place that transition is
 # recorded is the ci step's own log text, e.g. "all CI checks passed - still
