@@ -1,0 +1,33 @@
+### RED-THEN-GREEN, per colocated test.
+### Identical tests/fm-crew-state.test.sh in both trees; only bin/fm-crew-state.sh differs
+### (PRE-FIX = base 3ffda36, FIXED = ca9da46). Each test run in isolation.
+
+--- test_terminal_passed_pr_skipped_claims_no_merge ---
+  PRE-FIX:
+    not ok - skipped pr step must not claim a merged PR (unexpected: 'PR merged')
+    state: done · source: run-step · run passed: PR merged/closed
+  FIXED:
+    ok - outcome=passed with a skipped pr step does not claim a merge
+
+--- test_findings_row_is_not_read_as_a_step_row ---
+  PRE-FIX:
+    not ok - the real skipped pr step must be read, not the pr-named finding (missing: 'PR step skipped')
+    state: done · source: run-step · run passed: PR merged/closed
+  FIXED:
+    ok - a findings row is never mistaken for a step row
+
+--- test_terminal_passed_without_a_pr_row_claims_no_merge ---
+  PRE-FIX:
+    not ok - an unreported pr step must not claim a merged-or-closed PR (unexpected: 'merged/closed')
+    state: done · source: run-step · run passed: PR merged/closed
+  FIXED:
+    ok - outcome=passed with no pr step row does not claim a merge
+
+--- test_terminal_passed_pr_completed_reads_as_landed ---
+  PRE-FIX:
+    ok - outcome=passed with a completed pr step still reports the merge
+  FIXED:
+    ok - outcome=passed with a completed pr step still reports the merge
+
+### Full colocated suite against the FIXED implementation:
+    all fm-crew-state tests passed

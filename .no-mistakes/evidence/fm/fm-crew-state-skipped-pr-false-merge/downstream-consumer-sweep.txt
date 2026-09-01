@@ -1,0 +1,37 @@
+### Downstream sweep: every consumer of bin/fm-crew-state.sh's one state line
+
+-- consumers that parse it --
+
+-- what each parses out (state and source only; detail is carried as free text) --
+  bin/fm-inactive-reconcile.sh:350  matches the 'state: done ' / 'state: failed ' prefix only:
+        "$CREW_STATE_BIN" "$id" 2>/dev/null) || state_rc=$?
+      [ "$state_rc" -ne 124 ] || return 3
+      case "$state_line" in
+        'state: done '*) state='done' ;;
+        'state: failed '*) state='failed' ;;
+        *) return 0 ;;
+      esac
+  bin/fm-classify-lib.sh crew_absorb_class: reads state, then source; never the detail:
+    crew_absorb_class() {  # <id>
+      local id=$1 line state src
+      [ -n "$id" ] || { printf 'none'; return; }
+      line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
+      case "$line" in state:*) ;; *) printf 'none'; return ;; esac
+      state=${line#state: }; state=${state%% *}
+      if [ "$state" = paused ]; then printf 'paused'; return; fi
+      if [ "$state" = working ]; then
+        src=${line#*source: }; src=${src%% *}
+        case "$src" in run-step|pane) printf 'working'; return ;; esac
+      fi
+      printf 'none'
+    }
+  bin/fm-fleet-snapshot.sh: splits on ' · ' and carries detail through verbatim into JSON.
+
+-- the reported state for a skipped-pr passed run is unchanged ('done'), so reconciliation behaviour is unchanged --
+-- no other file in the repo referenced the old detail string --
+    bin/fm-crew-state.sh:343:    completed) printf 'run passed: PR merged/closed' ;;
+
+-- consumer suites run green against the fixed implementation --
+    tests/fm-inactive-reconcile.test.sh  rc=0  all inactive reconciliation tests passed
+    tests/fm-fleet-snapshot-view.test.sh  rc=0  ok - fleet view renders secondmate agent liveness
+    tests/fm-wake-queue.test.sh  rc=0  ok - interruptions preserve durable rows until post-handling acknowledgement

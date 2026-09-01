@@ -1,0 +1,34 @@
+########## BEFORE the fix (bin/fm-crew-state.sh at base 3ffda36) ##########
+
+--- real run 01M1EA5NJVP18AE7SPY5MBYW42 (pr,skipped / ci,skipped; forge said state=open, merged=false) ---
+    axi status says:     pr,skipped,0,17
+    axi status says:     ci,skipped,0,16
+    axi status says: outcome: passed
+  $ bin/fm-crew-state.sh karyo-keycloak
+  state: done · source: run-step · run passed: PR merged/closed
+
+--- real run 01M1669Y82JTHWEBSG7PR2TKNH (pr,completed; the pipeline genuinely merged PR 6) ---
+    axi status says:   pr: "https://github.com/scjunction/scj-hive-intelligence/pull/6"
+    axi status says:     pr,completed,0,43885
+    axi status says:     ci,completed,0,31779488
+    axi status says: outcome: passed
+  $ bin/fm-crew-state.sh corpus-repin
+  state: done · source: run-step · run passed: PR merged/closed
+
+########## AFTER the fix (bin/fm-crew-state.sh at ca9da46) ##########
+
+--- real run 01M1EA5NJVP18AE7SPY5MBYW42 (pr,skipped / ci,skipped; forge said state=open, merged=false) ---
+    axi status says:     pr,skipped,0,17
+    axi status says:     ci,skipped,0,16
+    axi status says: outcome: passed
+  $ bin/fm-crew-state.sh karyo-keycloak
+  state: done · source: run-step · run passed, PR step skipped: no PR was opened or merged by the run, merge state unknown to it
+
+--- real run 01M1669Y82JTHWEBSG7PR2TKNH (pr,completed; the pipeline genuinely merged PR 6) ---
+    axi status says:   pr: "https://github.com/scjunction/scj-hive-intelligence/pull/6"
+    axi status says:     pr,completed,0,43885
+    axi status says:     ci,completed,0,31779488
+    axi status says: outcome: passed
+  $ bin/fm-crew-state.sh corpus-repin
+  state: done · source: run-step · run passed: PR merged/closed
+

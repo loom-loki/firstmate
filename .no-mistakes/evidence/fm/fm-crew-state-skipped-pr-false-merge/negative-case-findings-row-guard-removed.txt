@@ -1,0 +1,7 @@
+### NEGATIVE CASE: fixed implementation with ONLY the numeric-third-column guard removed
+### mutation:
+-    | grep -E "^[[:space:]]*$1,[[:space:]]*\"?[A-Za-z0-9_-]+\"?[[:space:]]*,[[:space:]]*[0-9]+[[:space:]]*," \
++    | grep -E "^[[:space:]]*$1,[[:space:]]*\"?[A-Za-z0-9_-]+\"?[[:space:]]*," \
+
+not ok - the real skipped pr step must be read, not the pr-named finding (missing: 'PR step skipped')
+state: done · source: run-step · run passed, PR step warning: merge state unknown to the run

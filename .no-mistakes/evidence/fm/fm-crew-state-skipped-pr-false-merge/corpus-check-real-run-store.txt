@@ -1,0 +1,28 @@
+### Corpus check against the LOCAL no-mistakes v1.60.2 run store
+### Source: `no-mistakes axi status --run <id>` rendered for every run in ~/.no-mistakes/state.sqlite (read-only).
+
+no-mistakes version v1.60.2 (eb4e379) 2026-08-29T21:51:31Z
+
+== 1. Does the stricter row match ever silently return empty where the old looser one matched? ==
+  runs in corpus:                 56
+  step rows in corpus:            504
+  step rows READ by nm_step_status: 504
+  step rows SILENTLY DROPPED:     0
+  runs the OLD ci predicate matched: 0
+    ...now missed by the new reader: 0
+  distinct step names:   ci document intent lint pr push rebase review test 
+  distinct status words: completed failed pending running skipped 
+  RESULT: PASS - every real step row is read; no row the old predicate matched is missed
+
+== 2. Old vs new ci read, forced through every ci status over real run output ==
+  ci-status cases exercised over real run output: 448
+  old predicate and new reader agree:             448
+  disagreements:                                  0
+  RESULT: PASS - the ci read is behaviour-identical to the predicate it replaced
+
+== 3. Are the two new fixtures faithful to the real runs they cite? ==
+  (diffing fixture against real axi output; only branch/head/pr differ, which the fixtures parameterize)
+  --- fixture vs real run 01M1EA5NJVP18AE7SPY5MBYW42 ---
+    identical apart from the parameterized identity fields
+  --- fixture vs real run 01M1669Y82JTHWEBSG7PR2TKNH ---
+    identical apart from the parameterized identity fields

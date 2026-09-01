@@ -1,0 +1,8 @@
+### outcome=passed detail across every pr-step status the new reader can see
+### (real bin/fm-crew-state.sh at ca9da46)
+
+  no pr step row at all                  -> state: done · source: run-step · run passed, no PR step reported: merge state unknown to the run
+  pr,failed (unexpected status)          -> state: done · source: run-step · run passed, PR step failed: merge state unknown to the run
+  pr,pending (unexpected status)         -> state: done · source: run-step · run passed, PR step pending: merge state unknown to the run
+  pr,completed                           -> state: done · source: run-step · run passed: PR merged/closed
+  pr,skipped                             -> state: done · source: run-step · run passed, PR step skipped: no PR was opened or merged by the run, merge state unknown to it
