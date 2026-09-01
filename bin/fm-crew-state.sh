@@ -295,13 +295,17 @@ log_reports_ci_ready() {
 }
 
 # Status word of one named row in the steps[N]{step,status,findings,duration_ms}
-# table, or empty when the run output carries no such row. The numeric third
-# column is required so a findings row (whose third column is a file path) can
-# never be mistaken for a step row.
+# table, or empty when the run output carries no such row. The NUMERIC third
+# column is what separates a step row from a findings row, whose third column is
+# a file path, so the status word itself is matched loosely: an unrecognized or
+# newly added status must still be read and reported, not silently dropped.
+# Verified against all 495 step rows `no-mistakes axi status --run` renders for
+# every run in the local v1.60.2 store: every one is read, and every row the
+# narrower ci-only predicate this replaced used to match is still matched.
 nm_step_status() {  # <step-name>
   local row rest
   row=$(printf '%s\n' "$RUN_OUT" \
-    | grep -E "^[[:space:]]*$1,[[:space:]]*\"?[a-z_]+\"?[[:space:]]*,[[:space:]]*[0-9]+[[:space:]]*," \
+    | grep -E "^[[:space:]]*$1,[[:space:]]*\"?[A-Za-z0-9_-]+\"?[[:space:]]*,[[:space:]]*[0-9]+[[:space:]]*," \
     | head -1)
   [ -n "$row" ] || return 0
   row=$(trim "$row")

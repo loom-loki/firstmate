@@ -746,6 +746,35 @@ test_terminal_passed_pr_skipped_claims_no_merge() {
   pass "outcome=passed with a skipped pr step does not claim a merge"
 }
 
+# The step-row reader separates a step row from a findings row by the numeric
+# third column alone. The findings table is emitted BEFORE the steps table, so
+# without that guard a findings row whose id is `pr` is matched first and
+# shadows the real pr step row entirely, making the reported PR step status the
+# finding's SEVERITY. This fixture is that collision: a `pr` finding sitting
+# above a genuine `pr,skipped` step row.
+run_passed_findings_row_shadowing_pr_step() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: completed
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  findings[1]{id,severity,file,line,action,description}:
+    pr,warning,a.go,,auto-fix,ignored error
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,13
+    rebase,skipped,42,521
+    review,completed,3,836695
+    test,completed,0,704937
+    document,completed,0,939357
+    lint,completed,1,16
+    push,completed,0,697
+    pr,skipped,0,17
+    ci,skipped,0,16
+outcome: passed
+EOF
+}
+
 # The ordinary landed case is unchanged: a completed pr step is the run's own
 # evidence that it performed the merge or close it reports.
 test_terminal_passed_pr_completed_reads_as_landed() {
@@ -760,6 +789,26 @@ test_terminal_passed_pr_completed_reads_as_landed() {
   assert_contains "$out" "source: run-step" "passed with completed pr -> run-step source"
   assert_contains "$out" "run passed: PR merged/closed" "completed pr step still reads as landed"
   pass "outcome=passed with a completed pr step still reports the merge"
+}
+
+# Negative case for the numeric-third-column guard in the step-row reader. The
+# run below genuinely skipped its pr step, and a `pr` finding sits above that
+# row in the output. Drop the guard and the finding is matched first, so the pr
+# step reads as the finding's severity ("warning") and the real skipped step is
+# never seen. Asserting the SPECIFIC skipped detail, not merely the absence of a
+# merge claim, is what makes this case fail when the guard is removed.
+test_findings_row_is_not_read_as_a_step_row() {
+  reset_fakes
+  local d; d=$(new_case findings-row-shadowing-pr)
+  make_repo_on_branch "$d/wt" fm/feat-d-findings
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-d-findings.meta" "window=fm:fm-feat-d-findings" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_passed_findings_row_shadowing_pr_step fm/feat-d-findings)"
+  local out; out=$(run_crew_state "$d" feat-d-findings)
+  assert_contains "$out" "PR step skipped" "the real skipped pr step must be read, not the pr-named finding"
+  assert_not_contains "$out" "PR step warning" "a finding severity must never be reported as a step status"
+  assert_not_contains "$out" "merged/closed" "the shadowed case must still not claim a merged-or-closed PR"
+  pass "a findings row is never mistaken for a step row"
 }
 
 test_terminal_failed() {
@@ -1660,6 +1709,7 @@ test_top_level_fixing_done_log_stays_working
 test_terminal_passed
 test_terminal_passed_pr_skipped_claims_no_merge
 test_terminal_passed_pr_completed_reads_as_landed
+test_findings_row_is_not_read_as_a_step_row
 test_terminal_failed
 test_cross_branch_attribution_via_runs_list
 test_cross_branch_attribution_picks_most_recent_row
