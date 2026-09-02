@@ -31,9 +31,12 @@
 #      The run-step is AUTHORITATIVE: running/fixing -> working, ci -> working,
 #      awaiting_approval/fix_review -> parked (with gate findings), terminal
 #      passed/checks-passed -> done, failed/cancelled -> failed. A terminal
-#      passed run reports a merge ONLY when its own pr step completed; a skipped
-#      pr step means the run opened and merged nothing, and the detail says so
-#      instead of asserting a merge (nm_passed_pr_detail). EXCEPT: while
+#      passed run reports a merge ONLY when its own pr step and every step it
+#      reports after that one completed; a skipped pr step means the run opened
+#      and merged nothing, and a completed pr step whose later step never ran
+#      means it opened a PR it never carried to a merge - the detail names
+#      the step that stopped short instead of asserting a merge
+#      (nm_passed_pr_detail). EXCEPT: while
 #      the active step is ci, `axi status` alone cannot tell "still waiting on
 #      checks" from "checks green, waiting on merge" (see nm_ci_checks_state) -
 #      a ci-step log-tail check overrides working -> done once checks read
@@ -294,11 +297,12 @@ log_reports_ci_ready() {
   esac
 }
 
-# Status word of one named row in the steps[N]{step,status,findings,duration_ms}
-# table, or empty when the run output carries no such row. The NUMERIC third
-# column is what separates a step row from a findings row, whose third column is
-# a file path, so the status word itself is matched loosely: an unrecognized or
-# newly added status must still be read and reported, not silently dropped.
+# Every row of the steps[N]{step,status,findings,duration_ms} table, in the
+# order `axi status` renders them - the pipeline's own step order, so a row's
+# position is what says which steps ran after which. The NUMERIC third column is
+# what separates a step row from a findings row, whose third column is a file
+# path, so the status word itself is matched loosely: an unrecognized or newly
+# added status must still be read and reported, not silently dropped.
 # Verified against all 495 step rows `no-mistakes axi status --run` renders for
 # every run in the local v1.60.2 store, every one of them terminal: all 495 are
 # read. That scan could not cover, and this deliberately does not match, the
@@ -307,11 +311,16 @@ log_reports_ci_ready() {
 # narrower ci-only predicate this replaced did match those rows; nothing is lost
 # by rejecting them, because the same output's steps table still carries that
 # step as `ci,running,0,0`.
+nm_step_rows() {
+  printf '%s\n' "$RUN_OUT" \
+    | grep -E "^[[:space:]]*[A-Za-z0-9_-]+,[[:space:]]*\"?[A-Za-z0-9_-]+\"?[[:space:]]*,[[:space:]]*[0-9]+[[:space:]]*,"
+}
+
+# Status word of one named step row, or empty when the run output carries no
+# such row.
 nm_step_status() {  # <step-name>
   local row rest
-  row=$(printf '%s\n' "$RUN_OUT" \
-    | grep -E "^[[:space:]]*$1,[[:space:]]*\"?[A-Za-z0-9_-]+\"?[[:space:]]*,[[:space:]]*[0-9]+[[:space:]]*," \
-    | head -1)
+  row=$(nm_step_rows | grep -E "^[[:space:]]*$1," | head -1)
   [ -n "$row" ] || return 0
   row=$(trim "$row")
   rest=${row#*,}
@@ -333,23 +342,51 @@ nm_ci_step_status() {
 # What outcome=passed actually proves about the pull request. A run reaches
 # outcome=passed once its steps finish without failing, which INCLUDES a run
 # whose pr and ci steps were SKIPPED - what happens whenever no-mistakes cannot
-# resolve the push provider - so nothing was ever opened or merged. Only a
-# COMPLETED pr step is the run's own evidence that it performed the merge or
-# close this used to assert unconditionally. Verified 2026-09-01 on no-mistakes
-# v1.60.2: run 01M1EA5NJVP18AE7SPY5MBYW42 reported `pr,skipped,0,17` and
-# `ci,skipped,0,16` under outcome=passed while the forge still had that branch's
-# pull request open and unmerged, and firstmate reported the work as landed.
+# resolve the push provider - so nothing was ever opened or merged. Verified
+# 2026-09-01 on no-mistakes v1.60.2: run 01M1EA5NJVP18AE7SPY5MBYW42 reported
+# `pr,skipped,0,17` and `ci,skipped,0,16` under outcome=passed while the forge
+# still had that branch's pull request open and unmerged, and firstmate reported
+# the work as landed.
+#
+# A COMPLETED pr step is not that evidence on its own either: the pr step only
+# OPENS the pull request. On merged run 01M1669Y82JTHWEBSG7PR2TKNH its pr.log
+# ends at `created pull request: <url>` while the LATER ci step's log ends at
+# `PR has been merged!`. The merge is therefore proven only when the pr row AND
+# every step row the run reports after it read `completed`; any of them skipped,
+# pending or absent means the run stopped short of a merge, and the detail names
+# the step it stopped at rather than asserting one. `no-mistakes axi run --skip=ci`
+# reaches exactly that shape - pr completed, ci skipped, outcome passed, PR
+# still open. No step name after `pr` is written here: the steps a merge claim
+# depends on are read from the run's own step order, because `axi status`
+# carries no merge signal to key on directly (v1.60.2 emits the PR url as `pr:`
+# and never the pr_state its store records beside it).
 # This never asks the forge itself: fm-crew-state reports the RUN's state, and
 # the forge remains the authority on merge state (bin/fm-pr-merge.sh).
 nm_passed_pr_detail() {
-  local step_status
+  local step_status after row rest step status
   step_status=$(nm_step_status pr)
   case "$step_status" in
-    completed) printf 'run passed: PR merged/closed' ;;
-    skipped)   printf 'run passed, PR step skipped: no PR was opened or merged by the run, merge state unknown to it' ;;
-    '')        printf 'run passed, no PR step reported: merge state unknown to the run' ;;
-    *)         printf 'run passed, PR step %s: merge state unknown to the run' "$step_status" ;;
+    completed) ;;
+    skipped)   printf 'run passed, PR step skipped: no PR was opened or merged by the run, merge state unknown to it'; return ;;
+    '')        printf 'run passed, no PR step reported: merge state unknown to the run'; return ;;
+    *)         printf 'run passed, PR step %s: merge state unknown to the run' "$step_status"; return ;;
   esac
+  after=$(nm_step_rows | sed -n '/^[[:space:]]*pr,/,$p' | tail -n +2)
+  if [ -z "$after" ]; then
+    printf 'run passed, PR opened, no step reported after it: merge state unknown to the run'
+    return
+  fi
+  while IFS= read -r row; do
+    row=$(trim "$row")
+    [ -n "$row" ] || continue
+    step=$(trim "${row%%,*}")
+    rest=${row#*,}
+    status=$(strip_quotes "$(trim "${rest%%,*}")")
+    [ "$status" = completed ] && continue
+    printf 'run passed, PR opened but %s step %s: merge state unknown to the run' "$step" "$status"
+    return
+  done <<< "$after"
+  printf 'run passed: PR merged/closed'
 }
 
 nm_effective_ci_step_status() {

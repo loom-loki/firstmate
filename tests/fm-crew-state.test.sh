@@ -791,6 +791,93 @@ test_terminal_passed_pr_completed_reads_as_landed() {
   pass "outcome=passed with a completed pr step still reports the merge"
 }
 
+# outcome=passed from `no-mistakes axi run --skip=ci`: the run opened the pull
+# request and stopped there, leaving it open and unmerged. The pr URL is present
+# exactly as a run that opened one emits it, and `ci,skipped,0,16` is a skipped
+# step row copied from the real v1.60.2 status of run 01M1EA5NJVP18AE7SPY5MBYW42.
+run_passed_ci_skipped() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: completed
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  pr: "https://github.com/o/r/pull/1"
+  findings: "1 auto-fix"
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,2
+    rebase,completed,0,1953
+    review,completed,3,6046577
+    test,completed,1,1385831
+    document,completed,2,418814
+    lint,completed,1,13
+    push,completed,0,4179
+    pr,completed,0,43885
+    ci,skipped,0,16
+outcome: passed
+EOF
+}
+
+# The pr step only OPENS a pull request - the step the run reports AFTER it is
+# what carries that PR to merged-or-closed. A run whose pr step completed and
+# whose later step never ran left the PR open, so the detail must report the PR
+# as opened and name the step that stopped short, never claim a merge.
+test_terminal_passed_ci_skipped_claims_no_merge() {
+  reset_fakes
+  local d; d=$(new_case passed-ci-skipped)
+  make_repo_on_branch "$d/wt" fm/feat-d-ciskip
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-d-ciskip.meta" "window=fm:fm-feat-d-ciskip" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_passed_ci_skipped fm/feat-d-ciskip)"
+  local out; out=$(run_crew_state "$d" feat-d-ciskip)
+  assert_contains "$out" "state: done" "passed with a skipped ci step is still a terminal done run"
+  assert_not_contains "$out" "merged/closed" "a PR the run never carried past opening must not read as merged"
+  assert_contains "$out" "PR opened but ci step skipped" "the step that stopped short must be named"
+  assert_contains "$out" "merge state unknown" "an unproven merge must read as unknown to the run"
+  pass "outcome=passed with a completed pr step but a skipped later step does not claim a merge"
+}
+
+# outcome=passed from a step table whose LAST row is the pr step, the shape any
+# axi status revision that drops or renames the merge-carrying step after it
+# would produce. Opening a PR is not merging it, so with nothing reported after
+# the pr step the run has shown no merge either.
+run_passed_pr_is_last_step() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: completed
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  pr: "https://github.com/o/r/pull/1"
+  findings: none
+  steps[8]{step,status,findings,duration_ms}:
+    intent,completed,0,2
+    rebase,completed,0,1953
+    review,completed,3,6046577
+    test,completed,1,1385831
+    document,completed,2,418814
+    lint,completed,1,13
+    push,completed,0,4179
+    pr,completed,0,43885
+outcome: passed
+EOF
+}
+
+test_terminal_passed_with_pr_as_last_step_claims_no_merge() {
+  reset_fakes
+  local d; d=$(new_case passed-pr-last-step)
+  make_repo_on_branch "$d/wt" fm/feat-d-prlast
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-d-prlast.meta" "window=fm:fm-feat-d-prlast" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_passed_pr_is_last_step fm/feat-d-prlast)"
+  local out; out=$(run_crew_state "$d" feat-d-prlast)
+  assert_contains "$out" "source: run-step" "passed with pr as the last step -> run-step source"
+  assert_not_contains "$out" "merged/closed" "a pr step with nothing after it must not claim a merged-or-closed PR"
+  assert_contains "$out" "no step reported after it" "the missing merge-carrying step must be reported plainly"
+  assert_contains "$out" "merge state unknown" "an unproven merge must read as unknown to the run"
+  pass "outcome=passed with the pr step last and nothing after it does not claim a merge"
+}
+
 # outcome=passed from a run whose step table carries NO pr row at all - the
 # shape any axi status revision that renames, reorders or drops that step would
 # produce. The reader cannot then observe a merge either, so the safety property
@@ -1749,6 +1836,8 @@ test_top_level_fixing_done_log_stays_working
 test_terminal_passed
 test_terminal_passed_pr_skipped_claims_no_merge
 test_terminal_passed_pr_completed_reads_as_landed
+test_terminal_passed_ci_skipped_claims_no_merge
+test_terminal_passed_with_pr_as_last_step_claims_no_merge
 test_findings_row_is_not_read_as_a_step_row
 test_terminal_passed_without_a_pr_row_claims_no_merge
 test_terminal_failed
