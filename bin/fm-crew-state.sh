@@ -34,13 +34,13 @@
 #      passed run reports a merge ONLY when its own pr step and every step it
 #      reports after that one completed; a skipped pr step means the run opened
 #      and merged nothing, and a completed pr step whose later step never ran
-#      means it opened a PR it never carried to a merge - the detail names
-#      the step that stopped short instead of asserting a merge
-#      (nm_passed_pr_detail). EXCEPT: while
-#      the active step is ci, `axi status` alone cannot tell "still waiting on
-#      checks" from "checks green, waiting on merge" (see nm_ci_checks_state) -
-#      a ci-step log-tail check overrides working -> done once checks read
-#      green, so a green PR is never silently read as still-validating.
+#      means it opened a PR it never carried to a merge - the detail names the
+#      step that stopped short instead of asserting a merge (nm_passed_pr_detail).
+#      EXCEPT: while the active step is ci, `axi status` alone cannot tell "still
+#      waiting on checks" from "checks green, waiting on merge" (see
+#      nm_ci_checks_state) - a ci-step log-tail check overrides working -> done
+#      once checks read green, so a green PR is never silently read as
+#      still-validating.
 #   3. Reconcile the status log: if its last line says needs-decision/blocked but
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
@@ -408,18 +408,18 @@ nm_effective_ci_step_status() {
 # Root cause of the PR #252 incident (2026-07): for a repo where merge is left
 # to the captain, no-mistakes' ci step (and therefore top-level status/outcome)
 # stays "running" for the ENTIRE CI-monitor phase, including long after GitHub
-# reports every check green - a run that reaches its pr and ci steps only
-# reaches outcome=passed once the PR is actually merged (or failed/cancelled if
-# closed); nm_passed_pr_detail above owns what outcome=passed proves about the
-# PR. `axi status`'s steps[] table never distinguishes "still waiting on
-# checks" from "checks green, waiting on merge": both read as plain
-# `ci,running,...`. The only place that transition is recorded is the ci step's
-# own log text, e.g. "all CI checks passed - still monitoring until merged or
-# closed" or "no CI checks reported - still monitoring until merged or closed"
-# (verified against 360+ real run logs under ~/.no-mistakes/logs/*/ci.log on the
-# installed v1.32.2 binary, including the actual PR #252 run). Reads the ci
-# step's log tail via `axi logs` and scans it for the MOST RECENT recognized
-# marker (the log is append-only/chronological, so the last match is current):
+# reports every check green: the ci step keeps monitoring until that PR is
+# merged or closed. What a terminal outcome=passed does and does not prove about
+# the PR is owned by nm_passed_pr_detail above, not restated here. `axi status`'s
+# steps[] table never distinguishes "still waiting on checks" from "checks green,
+# waiting on merge": both read as plain `ci,running,...`. The only place that
+# transition is recorded is the ci step's own log text, e.g. "all CI checks
+# passed - still monitoring until merged or closed" or "no CI checks reported -
+# still monitoring until merged or closed" (verified against 360+ real run logs
+# under ~/.no-mistakes/logs/*/ci.log on the installed v1.32.2 binary, including
+# the actual PR #252 run). Reads the ci step's log tail via `axi logs` and scans
+# it for the MOST RECENT recognized marker (the log is append-only and
+# chronological, so the last match is current):
 # green with nothing red after it means CI is green right now, still only
 # waiting on merge/close.
 nm_ci_checks_state() {
