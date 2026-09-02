@@ -775,8 +775,12 @@ outcome: passed
 EOF
 }
 
-# The ordinary landed case is unchanged: a completed pr step is the run's own
-# evidence that it performed the merge or close it reports.
+# The ordinary landed case: the merge claim holds because the pr row AND every
+# step row the run reports after it read `completed` - a completed pr step alone
+# only says a PR was opened. The fixture's trailing `ci,completed,0,31779488` is
+# therefore load-bearing for the assertion below, not incidental: with that last
+# row skipped or pending the detail must stop claiming a merge, which is what
+# test_terminal_passed_ci_skipped_claims_no_merge pins.
 test_terminal_passed_pr_completed_reads_as_landed() {
   reset_fakes
   local d; d=$(new_case passed-pr-completed)
