@@ -936,9 +936,35 @@ test_large_backlog_survives_single_argument_cap() {
   pass "backlog past the 128 KiB single-argument cap still projects inventory and home summary"
 }
 
+# The scratch directory holding those --slurpfile documents is minted once per
+# run and must be gone when the process exits, or every watcher refresh leaves a
+# backlog-sized copy behind in TMPDIR.
+test_snapshot_run_leaves_no_scratch_directory() {
+  local home fakebin scratch leftover
+  home=$(make_home scratch-cleanup)
+  write_fixture "$home"
+  fakebin=$(make_fakebin "$home")
+  scratch=$TMP_ROOT/scratch-tmpdir
+  mkdir -p "$scratch"
+
+  TMPDIR="$scratch" PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json >/dev/null \
+    || fail "snapshot must succeed before asserting scratch cleanup"
+  leftover=$(find "$scratch" -mindepth 1 -maxdepth 1 -print)
+  [ -z "$leftover" ] \
+    || fail "--json run must remove its scratch state, left: $leftover"
+
+  TMPDIR="$scratch" PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary >/dev/null \
+    || fail "home summary must succeed before asserting scratch cleanup"
+  leftover=$(find "$scratch" -mindepth 1 -maxdepth 1 -print)
+  [ -z "$leftover" ] \
+    || fail "--secondmate-home-summary run must remove its scratch state, left: $leftover"
+  pass "snapshot runs remove their scratch documents on exit"
+}
+
 test_empty_fleet_json
 test_fixture_snapshot_json
 test_large_backlog_survives_single_argument_cap
+test_snapshot_run_leaves_no_scratch_directory
 test_home_summary_excludes_secondmate_from_child_inventory
 test_main_inventory_orphan_and_unstructured_disclosure
 test_normalized_roles_and_plural_blocker_readiness

@@ -237,14 +237,30 @@ bool_json() {
 # never through argv. Scalars, booleans, and bounded counters stay on --argjson.
 SNAPSHOT_DOC_DIR=
 
+snapshot_doc_dir_init() {
+  [ -z "$SNAPSHOT_DOC_DIR" ] || return 0
+  SNAPSHOT_DOC_DIR=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/fm-fleet-docs.XXXXXX") || return 1
+}
+
+snapshot_doc_path() {  # <label> - prints the scratch file path
+  local label=$1
+  case "$label" in ''|*[!a-z0-9-]*) return 1 ;; esac
+  [ -n "$SNAPSHOT_DOC_DIR" ] || return 1
+  printf '%s\n' "$SNAPSHOT_DOC_DIR/$label.json"
+}
+
 snapshot_doc_file() {  # <label> <json-document> - prints the scratch file path
   local label=$1 doc=$2 file
-  case "$label" in ''|*[!a-z0-9-]*) return 1 ;; esac
-  if [ -z "$SNAPSHOT_DOC_DIR" ]; then
-    SNAPSHOT_DOC_DIR=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/fm-fleet-docs.XXXXXX") || return 1
-  fi
-  file="$SNAPSHOT_DOC_DIR/$label.json"
+  [ -n "$doc" ] || return 1
+  file=$(snapshot_doc_path "$label") || return 1
   printf '%s\n' "$doc" > "$file" || return 1
+  printf '%s\n' "$file"
+}
+
+snapshot_doc_sink() {  # <label> - prints the path of an empty append target
+  local label=$1 file
+  file=$(snapshot_doc_path "$label") || return 1
+  : > "$file" || return 1
   printf '%s\n' "$file"
 }
 
@@ -1218,6 +1234,8 @@ snapshot_exit_cleanup() {
   snapshot_doc_cleanup
 }
 trap snapshot_exit_cleanup EXIT
+snapshot_doc_dir_init \
+  || { echo "fm-fleet-snapshot: scratch directory creation failed" >&2; exit 1; }
 
 bounded_parent_activities_json() {  # <status-file>
   local f=$1 out rc reason script
@@ -1457,8 +1475,7 @@ secondmate_current_json() {  # <parent-tasks-json>
   if [ -n "$rows" ]; then
     prepare_remote_summary_collection "$rows" || return 1
   fi
-  records_file=$(snapshot_doc_file secondmate-records '') || return 1
-  : > "$records_file" || return 1
+  records_file=$(snapshot_doc_sink secondmate-records) || return 1
 
   while IFS= read -r row; do
     [ -n "$row" ] || continue
@@ -1546,8 +1563,9 @@ secondmate_current_json() {  # <parent-tasks-json>
       fi
     fi
     # Failed command substitutions clear their assignment target. Keep the
-    # unsampled record's --argjson input valid without retaining any rejected
-    # or oversized summary fragment.
+    # unsampled record's staged summary document non-empty - an empty one is
+    # rejected at staging - without retaining any rejected or oversized
+    # summary fragment.
     if [ -n "$reason" ]; then summary='{}'; fi
     if [ -z "$reason" ]; then
       summary_sampled=true
