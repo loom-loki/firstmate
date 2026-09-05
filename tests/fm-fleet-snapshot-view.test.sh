@@ -961,10 +961,45 @@ test_snapshot_run_leaves_no_scratch_directory() {
   pass "snapshot runs remove their scratch documents on exit"
 }
 
+# Staging a document is the only way a document reaches jq now, so a scratch
+# area the snapshot cannot write must fail the run closed. Emitting a partial
+# document with null-valued fields would be read by fm-fleet-view.sh and by the
+# published home-summary ledger as real fleet state.
+test_unwritable_scratch_area_fails_closed() {
+  local home fakebin scratch out rc err
+  [ "$(id -u)" -ne 0 ] || { echo "skip: running as root ignores directory permissions"; return 0; }
+  home=$(make_home scratch-unwritable)
+  write_fixture "$home"
+  fakebin=$(make_fakebin "$home")
+  scratch=$TMP_ROOT/unwritable-tmpdir
+  mkdir -p "$scratch"
+  chmod 500 "$scratch"
+
+  err=$TMP_ROOT/unwritable.err
+  out=$(TMPDIR="$scratch" PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json 2>"$err")
+  rc=$?
+  chmod 700 "$scratch"
+  [ "$rc" -ne 0 ] || fail "--json must fail when its scratch area is unwritable, got exit 0: $out"
+  [ -z "$out" ] || fail "--json must emit nothing when staging fails, got: $out"
+  assert_contains "$(cat "$err")" "fm-fleet-snapshot: scratch directory creation failed" \
+    "the snapshot must diagnose the unusable scratch area itself"
+
+  chmod 500 "$scratch"
+  out=$(TMPDIR="$scratch" PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary 2>"$err")
+  rc=$?
+  chmod 700 "$scratch"
+  [ "$rc" -ne 0 ] || fail "home summary must fail when its scratch area is unwritable, got exit 0: $out"
+  [ -z "$out" ] || fail "home summary must emit nothing when staging fails, got: $out"
+  assert_contains "$(cat "$err")" "fm-fleet-snapshot: scratch directory creation failed" \
+    "the home summary must diagnose the unusable scratch area itself"
+  pass "an unwritable scratch area fails the snapshot closed instead of emitting null fields"
+}
+
 test_empty_fleet_json
 test_fixture_snapshot_json
 test_large_backlog_survives_single_argument_cap
 test_snapshot_run_leaves_no_scratch_directory
+test_unwritable_scratch_area_fails_closed
 test_home_summary_excludes_secondmate_from_child_inventory
 test_main_inventory_orphan_and_unstructured_disclosure
 test_normalized_roles_and_plural_blocker_readiness

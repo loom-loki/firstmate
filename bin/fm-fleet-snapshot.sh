@@ -8,6 +8,11 @@
 # atomically refresh parent-side cached copies of remote home summaries under
 # state/secondmate-summary-cache; those observational cache writes are its only
 # fleet-state mutation.
+# Both modes additionally mint one private mode-0700 scratch directory per run
+# under $TMPDIR (or /tmp) to hand jq the JSON documents it must not receive on
+# argv, and remove it on exit; see the MAX_ARG_STRLEN note below. A scratch area
+# the command cannot create or write fails the run closed - nonzero exit, no
+# output - instead of emitting a document whose fields silently read as null.
 #
 # Top-level fields:
 #   schema: stable schema id.
