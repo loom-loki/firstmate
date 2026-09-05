@@ -896,8 +896,49 @@ EOF
   pass "home-summary excludes kind=secondmate from unowned_current and terminal_in_flight"
 }
 
+# A home's backlog is unbounded, and Linux caps a single argv entry at
+# MAX_ARG_STRLEN (128 KiB) independently of the far larger ARG_MAX total.
+# Both snapshot outputs must keep working once a backlog crosses that cap.
+test_large_backlog_survives_single_argument_cap() {
+  local home out summary rc err rows=900 i backlog_bytes
+  home=$(make_home large-backlog)
+  {
+    printf '## In flight\n'
+    printf '## Queued\n'
+    for ((i = 1; i <= rows; i++)); do
+      printf -- '- [ ] bulk-%03d - Bulk queued item %03d carrying a long descriptive title so this backlog crosses the single-argument cap (repo: alpha) (kind: ship) (since 2026-07-08)\n' "$i" "$i"
+    done
+    printf '## Done\n'
+  } > "$home/data/backlog.md"
+  backlog_bytes=$(LC_ALL=C wc -c < "$home/data/backlog.md" | tr -d ' ')
+  [ "$backlog_bytes" -gt 131072 ] \
+    || fail "fixture backlog must exceed the 128 KiB single-argument cap, got $backlog_bytes bytes"
+
+  err=$TMP_ROOT/large-backlog.err
+  out=$(FM_HOME="$home" "$SNAPSHOT" --json 2>"$err")
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "large-backlog snapshot must succeed, exit $rc: $(cat "$err")"
+  printf '%s' "$out" | jq -e --argjson rows "$rows" '
+    .schema == "fm-fleet-snapshot.v1"
+      and (.backlog.records | length) == $rows
+      and .main_inventory.valid == true
+      and .main_inventory.unstructured_current_count == 0
+  ' >/dev/null || fail "large-backlog snapshot lost backlog rows or main inventory"
+
+  summary=$(FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary 2>"$err")
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "large-backlog home summary must succeed, exit $rc: $(cat "$err")"
+  printf '%s' "$summary" | jq -e --argjson rows "$rows" '
+    .schema == "fm-secondmate-home-summary.v1"
+      and .valid == true
+      and .counts.queued == $rows
+  ' >/dev/null || fail "large-backlog home summary lost queued inventory: $summary"
+  pass "backlog past the 128 KiB single-argument cap still projects inventory and home summary"
+}
+
 test_empty_fleet_json
 test_fixture_snapshot_json
+test_large_backlog_survives_single_argument_cap
 test_home_summary_excludes_secondmate_from_child_inventory
 test_main_inventory_orphan_and_unstructured_disclosure
 test_normalized_roles_and_plural_blocker_readiness
