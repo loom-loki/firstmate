@@ -29,7 +29,9 @@ Styled capture stays internal to the boolean detector; `fm-peek` and model-facin
 ## Primary integration
 
 Primary behavior was verified 2026-07-04 on 2.1.201, preserved 2026-07-08 on 2.1.204, and Stop auto-arm revalidated 2026-07-24 on 2.1.219.
-This differs from the worker hook, which only touches a task marker through `.claude/settings.local.json`.
+This differs from the worker hook, which reaches only this task's own turn marker and busy events through `.claude/settings.local.json` in the task worktree.
+A project may TRACK that path, so the spawn merges its task entries into the project's own JSON and cleanup restores the committed content.
+`../../../bin/fm-claude-settings-lib.sh` owns that contract, including when the resulting modification is excluded from teardown's uncommitted-work refusal and when a merge or a cleanup refuses instead.
 
 Primary `.claude/settings.json` registers `../../../bin/fm-turnend-guard.sh --claude` and `../../../bin/fm-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
 Guard exit 2 plus stderr forces continuation.
