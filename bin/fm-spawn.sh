@@ -179,6 +179,9 @@
 #     __WORKTREE__  absolute path to the task worktree
 #     __CURSORBIN__ resolved, cursor-verified executable for a cursor launch
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
+# claude writes <worktree>/.claude/settings.local.json, the one hook artifact a project may
+# also TRACK; bin/fm-claude-settings-lib.sh owns merging into committed project content,
+# recording the bytes teardown reverses, and refusing rather than overwriting.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
 # grok uses a firstmate-owned global hook under ${GROK_HOME:-$HOME/.grok}/hooks
@@ -299,6 +302,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-claude-settings-lib.sh
+. "$SCRIPT_DIR/fm-claude-settings-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
@@ -934,6 +939,13 @@ clear_relaunch_harness_wiring() {
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
+    # Claude's wiring path is the one a project may TRACK, so retiring it is a
+    # restore, not a removal, and it refuses rather than discard a change
+    # firstmate did not write (bin/fm-claude-settings-lib.sh).
+    if [ "$path" = "$wt/$FM_CLAUDE_SETTINGS_REL" ]; then
+      fm_claude_settings_retire "$wt" "$state" "$id" || return 1
+      continue
+    fi
     rm -f -- "$path" || return 1
   done <<EOF
 $(fm_control_harness_wiring_paths "$harness" "$wt" "$state" "$id")
@@ -2622,16 +2634,18 @@ if [ "$KIND" != secondmate ]; then
       # the turn-ended NOTIFICATION touch for the watcher. Every
       # hook command tolerates a refused event (|| true) so a stale-gen writer
       # can never break Claude's own lifecycle.
-      mkdir -p "$WT/.claude"
       busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
       busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source claude-hook"
       j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
       j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
       j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
       j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
-      cat > "$WT/.claude/settings.local.json" <<EOF
-{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
-EOF
+      # A project may TRACK this path with settings of its own, so installing
+      # the entries is not a plain overwrite; bin/fm-claude-settings-lib.sh owns
+      # the merge, the recorded bytes teardown reverses, and the refusals.
+      claude_hooks=$(printf '{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"%s"}]}],"Stop":[{"hooks":[{"type":"command","command":"%s"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"%s"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"%s"}]}]}' \
+        "$j_submit" "$j_stop" "$j_stopfail" "$j_sessionend")
+      fm_claude_settings_arm "$WT" "$STATE_REAL" "$ID" "$claude_hooks" || exit 1
       exclude_path '.claude/settings.local.json'
       ;;
     opencode*)
