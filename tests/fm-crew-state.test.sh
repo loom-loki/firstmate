@@ -397,6 +397,44 @@ run:
 EOF
 }
 
+# The same ci-monitoring scenario as run_ci_monitoring above, rendered the way
+# `axi status` actually renders a run while a step is UNDERWAY: the
+# steps[N]{step,status,findings,duration_ms} table carrying the running step as
+# `ci,running,0,0`, followed by the second
+# active_steps[1]{step,status,active_for,last_activity,agent_pid,round} table
+# whose third column is a DURATION rather than a count. Both tables, their order
+# and their column shapes were captured from live runs on no-mistakes v1.60.2
+# (eb4e379, built 2026-08-29), sampled on three different running steps - three
+# distinct step names, not three runs. The durations observed across those
+# samples span both second scale (7s, 18s, 19s) and minute scale (2m34s, 3m41s,
+# both on a running test step), so the `1m40s` below is written in a duration
+# form that version actually renders rather than a plausible-looking one
+# invented to fill the column; the step name and the exact durations are the
+# only things that differ from those captures.
+run_ci_monitoring_with_active_steps() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: running
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  pr: "https://github.com/o/r/pull/2"
+  findings: none
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,12
+    rebase,completed,0,77
+    review,completed,0,22991
+    test,completed,0,1385831
+    document,completed,0,418814
+    lint,completed,0,13
+    push,completed,0,4179
+    pr,completed,0,43885
+    ci,running,0,0
+  active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    ci,running,1m40s,"12s ago: claude producing output","12345",starting
+EOF
+}
+
 # ---------------------------------------------------------------------------
 # (a) active run-step is authoritative
 test_active_run_is_authoritative() {
@@ -536,6 +574,30 @@ EOF
   assert_contains "$out" "checks green" "green ci-monitor detail mentions checks green"
   assert_not_contains "$out" "state: working" "green ci-monitor must not read as still validating"
   pass "ci-monitoring run with checks already green surfaces done"
+}
+
+# The same green-checks override as above, on a run rendering BOTH the steps
+# table and the active_steps table a live run carries (see
+# run_ci_monitoring_with_active_steps). The ci status here comes from the steps
+# row `ci,running,0,0`, so this pins that narrowing the step-row reader to the
+# steps table left the ACTIVE-run path intact.
+# Stop reading that steps row and this run's ci step reads as nothing at all, the
+# override never fires, and a green PR reads as validating forever - the PR #252
+# incident class.
+test_ci_monitoring_with_active_steps_table_still_reads_the_step_row() {
+  reset_fakes
+  local d; d=$(new_case ci-active-steps)
+  make_repo_on_branch "$d/wt" fm/feat-ciactive
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-ciactive.meta" "window=fm:fm-feat-ciactive" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_ci_monitoring_with_active_steps fm/feat-ciactive)"
+  FM_FAKE_CI_LOGS="all CI checks passed - still monitoring until merged or closed"
+  local out; out=$(run_crew_state "$d" feat-ciactive)
+  assert_contains "$out" "state: done" "an active_steps table must not hide the ci step's own steps row"
+  assert_contains "$out" "source: run-step" "the active run is still read from the run step"
+  assert_contains "$out" "checks green" "the green-checks override still fires for an active run"
+  assert_not_contains "$out" "state: working" "a green PR must not read as still validating"
+  pass "an active run's second active_steps table does not disturb the step-row reader"
 }
 
 test_top_level_ci_checks_green_surfaces_done() {
@@ -741,18 +803,27 @@ test_terminal_passed_pr_skipped_claims_no_merge() {
   assert_contains "$out" "source: run-step" "passed with skipped pr -> run-step source"
   assert_not_contains "$out" "PR merged" "skipped pr step must not claim a merged PR"
   assert_not_contains "$out" "merged/closed" "skipped pr step must not claim a merged-or-closed PR"
-  assert_contains "$out" "PR step skipped" "skipped pr step must say so plainly"
-  assert_contains "$out" "merge state unknown" "skipped pr step must state merge state is unknown to the run"
+  assert_contains "$out" "run passed, PR step skipped: no PR was opened or merged by the run, merge state unknown to the run" \
+    "skipped pr step must report the whole claim, scoped to what the run itself did"
   pass "outcome=passed with a skipped pr step does not claim a merge"
 }
 
-# The step-row reader separates a step row from a findings row by the numeric
-# third column alone. The findings table is emitted BEFORE the steps table, so
-# without that guard a findings row whose id is `pr` is matched first and
-# shadows the real pr step row entirely, making the reported PR step status the
-# finding's SEVERITY. This fixture is that collision: a `pr` finding sitting
-# above a genuine `pr,skipped` step row.
-run_passed_findings_row_shadowing_pr_step() {  # <branch>
+# The findings table is emitted BEFORE the steps table, so a findings row whose
+# id is `pr` sits above the genuine pr step row and is matched first by any
+# reader that scans the whole run output for a row shape. That collision makes
+# the reported PR step status the finding's SEVERITY. This fixture is that
+# collision - a `pr` finding above a genuine `pr,skipped` step row - and its
+# file column is parameterized because a findings row can take more than one
+# shape there.
+#
+# `a.go` is the ordinary shape. `123` is a bare numeric file column: on the
+# encoder shape observed for v1.60.2 a numeric-looking string field renders
+# quoted, so that row is not one this version emits today, but nothing in the
+# reader's contract makes that quoting a guarantee. Both must be rejected
+# because of where the row SITS in the output rather than what its columns
+# happen to contain, so a change in how the encoder quotes cannot turn a
+# finding into a step.
+run_passed_findings_row_shadowing_pr_step() {  # <branch> [<file-column>]
   cat <<EOF
 run:
   id: "01RUN"
@@ -760,7 +831,7 @@ run:
   status: completed
   head: "${FM_FAKE_RUN_HEAD:-abc1234}"
   findings[1]{id,severity,file,line,action,description}:
-    pr,warning,a.go,,auto-fix,ignored error
+    pr,warning,${2:-a.go},,auto-fix,ignored error
   steps[9]{step,status,findings,duration_ms}:
     intent,completed,0,13
     rebase,skipped,42,521
@@ -836,8 +907,8 @@ test_terminal_passed_ci_skipped_claims_no_merge() {
   local out; out=$(run_crew_state "$d" feat-d-ciskip)
   assert_contains "$out" "state: done" "passed with a skipped ci step is still a terminal done run"
   assert_not_contains "$out" "merged/closed" "a PR the run never carried past opening must not read as merged"
-  assert_contains "$out" "PR opened but ci step skipped" "the step that stopped short must be named"
-  assert_contains "$out" "merge state unknown" "an unproven merge must read as unknown to the run"
+  assert_contains "$out" "run passed, PR opened but ci step skipped: merge state unknown to the run" \
+    "the step that stopped short must be named, and the merge left unclaimed"
   pass "outcome=passed with a completed pr step but a skipped later step does not claim a merge"
 }
 
@@ -877,8 +948,8 @@ test_terminal_passed_with_pr_as_last_step_claims_no_merge() {
   local out; out=$(run_crew_state "$d" feat-d-prlast)
   assert_contains "$out" "source: run-step" "passed with pr as the last step -> run-step source"
   assert_not_contains "$out" "merged/closed" "a pr step with nothing after it must not claim a merged-or-closed PR"
-  assert_contains "$out" "no step reported after it" "the missing merge-carrying step must be reported plainly"
-  assert_contains "$out" "merge state unknown" "an unproven merge must read as unknown to the run"
+  assert_contains "$out" "run passed, PR opened, no step reported after it: merge state unknown to the run" \
+    "the missing merge-carrying step must be reported plainly, and the merge left unclaimed"
   pass "outcome=passed with the pr step last and nothing after it does not claim a merge"
 }
 
@@ -917,29 +988,33 @@ test_terminal_passed_without_a_pr_row_claims_no_merge() {
   local out; out=$(run_crew_state "$d" feat-d-nopr)
   assert_contains "$out" "source: run-step" "passed with no pr row -> run-step source"
   assert_not_contains "$out" "merged/closed" "an unreported pr step must not claim a merged-or-closed PR"
-  assert_contains "$out" "no PR step reported" "an unreported pr step must say so plainly"
-  assert_contains "$out" "merge state unknown" "an unreported pr step must state merge state is unknown to the run"
+  assert_contains "$out" "run passed, no PR step reported: merge state unknown to the run" \
+    "an unreported pr step must say so plainly, and the merge left unclaimed"
   pass "outcome=passed with no pr step row does not claim a merge"
 }
 
-# Negative case for the numeric-third-column guard in the step-row reader. The
-# run below genuinely skipped its pr step, and a `pr` finding sits above that
-# row in the output. Drop the guard and the finding is matched first, so the pr
-# step reads as the finding's severity ("warning") and the real skipped step is
-# never seen. Asserting the SPECIFIC skipped detail, not merely the absence of a
+# Negative case for the table scoping in the step-row reader. The run below
+# genuinely skipped its pr step, and a `pr` finding sits above that row in the
+# output. Drop the scoping and the finding is matched first, so the pr step
+# reads as the finding's severity ("warning") and the real skipped step is never
+# seen. Asserting the SPECIFIC skipped detail, not merely the absence of a
 # merge claim, is what makes this case fail when the guard is removed.
 test_findings_row_is_not_read_as_a_step_row() {
-  reset_fakes
-  local d; d=$(new_case findings-row-shadowing-pr)
-  make_repo_on_branch "$d/wt" fm/feat-d-findings
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-d-findings.meta" "window=fm:fm-feat-d-findings" "worktree=$d/wt" "kind=ship"
-  FM_FAKE_AXI_STATUS="$(run_passed_findings_row_shadowing_pr_step fm/feat-d-findings)"
-  local out; out=$(run_crew_state "$d" feat-d-findings)
-  assert_contains "$out" "PR step skipped" "the real skipped pr step must be read, not the pr-named finding"
-  assert_not_contains "$out" "PR step warning" "a finding severity must never be reported as a step status"
-  assert_not_contains "$out" "merged/closed" "the shadowed case must still not claim a merged-or-closed PR"
-  pass "a findings row is never mistaken for a step row"
+  local case_n=0 file_col d out
+  for file_col in a.go 123; do
+    case_n=$((case_n + 1))
+    reset_fakes
+    d=$(new_case "findings-row-shadowing-pr-$case_n")
+    make_repo_on_branch "$d/wt" fm/feat-d-findings
+    make_fakebin "$d" >/dev/null
+    fm_write_meta "$d/state/feat-d-findings.meta" "window=fm:fm-feat-d-findings" "worktree=$d/wt" "kind=ship"
+    FM_FAKE_AXI_STATUS="$(run_passed_findings_row_shadowing_pr_step fm/feat-d-findings "$file_col")"
+    out=$(run_crew_state "$d" feat-d-findings)
+    assert_contains "$out" "PR step skipped" "the real skipped pr step must be read, not the pr-named finding (file column $file_col)"
+    assert_not_contains "$out" "PR step warning" "a finding severity must never be reported as a step status (file column $file_col)"
+    assert_not_contains "$out" "merged/closed" "the shadowed case must still not claim a merged-or-closed PR (file column $file_col)"
+  done
+  pass "a findings row is never mistaken for a step row, whatever its columns hold"
 }
 
 test_terminal_failed() {
@@ -1827,6 +1902,7 @@ test_scalar_gate_parked_not_superseded
 test_gate_block_parked_not_superseded
 test_ci_ready_done_log_beats_monitoring_run
 test_ci_monitoring_checks_green_surfaces_done
+test_ci_monitoring_with_active_steps_table_still_reads_the_step_row
 test_top_level_ci_checks_green_surfaces_done
 test_ci_monitoring_no_checks_terminal_surfaces_done
 test_ci_monitoring_green_then_rearm_stays_working
