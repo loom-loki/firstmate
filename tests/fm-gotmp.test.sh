@@ -67,6 +67,9 @@ SH
   # Lifecycle serialization, status presentation retirement, and shared adapter
   # ownership are sourced by teardown.
   ln -s "$ROOT/bin/fm-control-lib.sh" "$fake/bin/fm-control-lib.sh"
+  # fm-claude-settings-lib.sh: teardown sources it to retire the one worktree
+  # hook artifact a project may track.
+  ln -s "$ROOT/bin/fm-claude-settings-lib.sh" "$fake/bin/fm-claude-settings-lib.sh"
   ln -s "$ROOT/bin/fm-classify-lib.sh" "$fake/bin/fm-classify-lib.sh"
   # fm-timeout-lib.sh: the shared hard bound fm-classify-lib.sh sources for the
   # wedge detector's bounded worktree write probe.
@@ -165,6 +168,9 @@ SH
   # fm-lease-lib.sh: teardown sources it for the supervision lease guard.
   ln -s "$ROOT/bin/fm-lease-lib.sh" "$fake/bin/fm-lease-lib.sh"
   ln -s "$ROOT/bin/fm-control-lib.sh" "$fake/bin/fm-control-lib.sh"
+  # fm-claude-settings-lib.sh: teardown sources it to retire the one worktree
+  # hook artifact a project may track.
+  ln -s "$ROOT/bin/fm-claude-settings-lib.sh" "$fake/bin/fm-claude-settings-lib.sh"
   ln -s "$ROOT/bin/fm-classify-lib.sh" "$fake/bin/fm-classify-lib.sh"
   # fm-timeout-lib.sh: the shared hard bound fm-classify-lib.sh sources for the
   # wedge detector's bounded worktree write probe.
